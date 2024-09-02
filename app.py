@@ -3,18 +3,15 @@ from dash import Dash, html, Input, Output, State, callback
 import dash_bootstrap_components as dbc
 import plotly.express as px
 import pandas as pd
-import json
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import TruncatedSVD
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
 from sklearn.cluster import KMeans
 from sklearn.feature_extraction import text
-import dash_bio as dashbio
 from bokeh.embed import json_item
 from bokeh.resources import CDN
 from bokeh.embed import file_html
-import holoviews as hv
 from msticpy.vis import mp_pandas_plot
 import msticpy as mp
 # import figures and functions from the other scripts
