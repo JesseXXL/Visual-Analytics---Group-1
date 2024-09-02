@@ -10,10 +10,12 @@ from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import Normalizer
 from sklearn.cluster import KMeans
 from sklearn.feature_extraction import text
+import dash_bio as dashbio
 from bokeh.embed import json_item
 from bokeh.resources import CDN
 from bokeh.embed import file_html
-
+import holoviews as hv
+from msticpy.vis import mp_pandas_plot
 import msticpy as mp
 # import figures and functions from the other scripts
 from organizational_chart import org_chart
@@ -24,11 +26,15 @@ from chord_diagram import create_chord_data, initial_chord_diagram
 article_data  = pd.read_csv('modified_data/articles_preprocessed.csv')
 email_data  = pd.read_csv('modified_data/email_preprocessed.csv')
 
+# setup color scheme
+
 color_map = {'Facilities':'green', 'InformationTechnology':'pink', 'Security':'purple', 'Executive':'red', 'Engineering':'yellow', 'Administration':'blue'}
 color_legend = ""
 for i in color_map:
     color_legend += str(i) 
     color_legend += f': {color_map[i]}\n'
+
+# setup stopwords for clustering
 
 stop_words = ['January', 'PM', 'AM', 'pm', 'am', 'january'] +  [str(x) for x in list(range(2015))]
 my_stop_words = list(text.ENGLISH_STOP_WORDS) + stop_words
@@ -36,12 +42,6 @@ my_stop_words = list(text.ENGLISH_STOP_WORDS) + stop_words
 # setup Dash App
 app = Dash(__name__, external_stylesheets=[dbc.themes.MINTY, dbc.icons.FONT_AWESOME], suppress_callback_exceptions=True)
 
-theme = {
-    'dark': True,
-    'detail': '#007439',
-    'primary': '#00EA64',
-    'secondary': '#6E6E6E',
-}
 
 # Specify App layout
 # Sidebar
@@ -89,27 +89,28 @@ sidebar = html.Div(
     style=SIDEBAR_STYLE,
 )
 
+# set main content style
 CONTENT_STYLE = {
     "margin-left": "18rem",
     "margin-right": "2rem",
     "padding": "2rem 1rem",
 }
 
-content = html.Div([dcc.Store(id='email_data'),
-                    dcc.Store(id='article_data', data={"data-frame-article": article_data.to_dict('records')}),  
-                    #dcc.Store(id='reset_memory'),
+# main content
+content = html.Div([dcc.Store(id='email_data'), # email data store
+                    dcc.Store(id='article_data', data={"data-frame-article": article_data.to_dict('records')}),  # email article store
     html.H1(children='MailDash', style={'textAlign':'center'}),
     html.Div([html.Hr(style={'borderWidth': "1vh", "width": "100%", "backgroundColor": "#AB87FF","opacity": "unset",}),
 	],),
     html.Div(
         [
-            dbc.Row(dbc.Col(html.Div(org_chart))),
+            dbc.Row(dbc.Col(html.Div(org_chart))), # org chart
             html.Div([html.Hr(style={'borderWidth': "1vh", "width": "100%", "backgroundColor": "#AB87FF","opacity": "unset",}),
 	        ],),
             dbc.Row(
                 [
-                    dbc.Col(html.Div(initial_chord_diagram)),
-                    dbc.Col(html.Div(dcc.Graph(id='mail_dist'))),
+                    dbc.Col(html.Div(initial_chord_diagram)), # chord diagram 
+                    dbc.Col(html.Div(dcc.Graph(id='mail_dist'))), # mail distribution plot
                 ]
             ),
         ]
@@ -118,14 +119,15 @@ content = html.Div([dcc.Store(id='email_data'),
 	],),
     html.Div(
         [
-            dbc.Row([dbc.Col('Email Timeline'), dbc.Col('Article Timeline')]),
+            dbc.Row([dbc.Col('Email Timeline'), dbc.Col('Article Timeline')]), # timeline titles
             dbc.Row(
-                [
-                    #dbc.Col(html.Td([dav.BokehJSON(id="bokeh")])),
+                [   
+                    # email timeline 
                     dbc.Col(html.Iframe(id='bokeh_email',
                                         srcDoc=None,
                                         style= {'width':'700px', 'height':'700px'}
-                                        )),
+                                        )), 
+                    # article timeline
                     dbc.Col(html.Iframe(id='bokeh_article',
                                         srcDoc=None,
                                         style= {'width':'700px', 'height':'700px'}
@@ -134,11 +136,10 @@ content = html.Div([dcc.Store(id='email_data'),
             ),
         ]
     ),
-    
-    #html.Pre(id='org-chart-tapNodeData-json'),
-    #html.Pre(id='chord-diagram-tapNodeData-json'),
     ], style=CONTENT_STYLE
 )
+
+# set app layout - sidebar + main content
 app.layout = html.Div([sidebar, content])
 
 # Define callbacks and interactive figure creating functions
@@ -155,7 +156,22 @@ app.layout = html.Div([sidebar, content])
               Input('article_cluster', 'value'),
 )          
 def update_data(org_chart_selection, article_data_, email_cluster, article_cluster, chord_diagram_selection=[]):
+    """
+    Method for getting and updating email and article dataframe 
 
+    input: 
+        - Organization chart user selection 
+        - Article data store
+        - User clustering selection 
+        - User email clustering selection 
+
+    output:
+        - email data (JSON)
+        - article data (JSON)
+        - the email selection (string)
+        - cluster sidebar header (string)
+        - top 10 words per cluster (string)
+    """
     # email filtering
     selected_org = []
     selected_chord = []
@@ -249,11 +265,6 @@ def update_data(org_chart_selection, article_data_, email_cluster, article_clust
 
     return {"data-frame-email": filtered_email_data.to_dict('records')}, {"data-frame-article": df_article.to_dict('records')}, email_selection, clusters_header, clusters_top10
 
-# Organizational Chart Select Data callback
-@callback(Output('org-chart-tapNodeData-json', 'children'),
-              Input('org-chart', 'selectedNodeData'))
-def displayTapNodeData(data):
-    return json.dumps(data, indent=2)
 
 # Chord Diagram
 @callback(
@@ -264,6 +275,19 @@ def displayTapNodeData(data):
     State("chord_diagram", "layout")
 )
 def update_chord_diagram(data, current_track, current_layout):
+    """
+    Method for creating chord diagram
+
+    input:
+        - email data frame
+        - previous chord diagram tracks state
+        - previous chord diagram layout state
+
+    output:
+        - new chord diagram tracks 
+        - new chord diagram layout
+    
+    """
     data_email = data['data-frame-email']
     df_email = pd.DataFrame(data_email)
     
@@ -279,6 +303,17 @@ def update_chord_diagram(data, current_track, current_layout):
     Input("article_cluster", "value"),
     Input("email_cluster", "value"))
 def update_bar_chart(data, ac, ec):
+    """
+    Method for creating email distribution plot (bar)
+
+    input:
+        - Email data 
+        - User input on article clustering 
+        - User input on email clustering
+
+    output:
+        - email distribution figure
+    """
     data_email = data['data-frame-email']
     df_email = pd.DataFrame(data_email)
     # create figure 
@@ -302,8 +337,21 @@ def update_bar_chart(data, ac, ec):
               Input("email_cluster", "value"),
               )
 def email_timeline(data, sentiment, article_cluster, email_cluster):
+    """
+    Method for creating email timeline
+
+    input:
+        - email data
+        - User input on sentiment analysis
+        - User input on article clustering 
+        - User input on email clustering
+
+    output:
+        - email timeline plot (HTML srcDoc format)
+    """
     data_email = data['data-frame-email']
     df_email = pd.DataFrame(data_email)
+    # check if sentiment is selected
     if 'Yes' in sentiment:
         fig = df_email.mp_plot.timeline_values(
             group_by="Department",
@@ -322,6 +370,7 @@ def email_timeline(data, sentiment, article_cluster, email_cluster):
             width=700,
         )
 
+    # check if clustering is selected
     if 'Yes' in article_cluster:
         if 'Yes' in email_cluster:
             if 'Yes' in sentiment:
@@ -340,7 +389,8 @@ def email_timeline(data, sentiment, article_cluster, email_cluster):
                     time_column="Date",
                     width=700,
                 )
-
+    # creat HTML object from bokeh plot 
+    # we do this because bokeh is not directly compatible with dash / plotly
     html_fig = file_html(fig, CDN)
 
     return html_fig
@@ -350,9 +400,20 @@ def email_timeline(data, sentiment, article_cluster, email_cluster):
               Input("sentiment", "value"),
               Input("article_cluster", "value"))
 def article_timeline(data, sentiment, article_cluster):
+    """
+    Method for creating article timeline
+
+    input:
+        - article data
+        - User input on sentiment analysis
+        - User input on article clustering 
+
+    output:
+        - article timeline plot (HTML srcDoc format)
+    """
     data_article = data['data-frame-article']
     df_article = pd.DataFrame(data_article)
-
+    # check if clustering is selected
     if 'Yes' in article_cluster:
         if 'Yes' in sentiment:
             fig = df_article.mp_plot.timeline_values(
@@ -367,6 +428,7 @@ def article_timeline(data, sentiment, article_cluster):
             fig = df_article.mp_plot.timeline(time_column="Date", source_columns= ['Medium', 'Header'], group_by='Cluster', width=700)
             
     else:
+        # check if sentiment is selected
         if 'Yes' in sentiment:
             fig = df_article.mp_plot.timeline_values(
                 group_by="Medium",
@@ -390,6 +452,18 @@ def article_timeline(data, sentiment, article_cluster):
           Output('clusters_top10', 'children', allow_duplicate=True),
               Input("reset", "n_clicks"), prevent_initial_call=True)
 def reset_article_data(reset):
+    """
+    Method for resetting article data
+
+    input:
+        -User reset button clicks
+
+    output:
+        - article data
+        - article filtering explanation text
+        - cluster header text
+        - cluster top10 text
+    """
 
     return {"data-frame-article": article_data.to_dict('records')}, '', '', ''
 
@@ -398,12 +472,28 @@ def reset_article_data(reset):
           Output("article_data", "data", allow_duplicate=True),
           Output("article_filter", "value"),
           Output('filter_text', 'children'),
-          #Output("article_cluster", "value"),
               Input("article_filter", "value"),
               Input("article_data", "data"),
               Input("article_cluster", "value"),
               Input('filter_text', 'children'), prevent_initial_call=True)
 def article_cluster_filtering(article_filter, data, article_cluster, text):
+    """
+    Method for fitlering article data store on a specific cluster
+
+    input:
+        - User input on article filter
+        - article data
+        - User input on article clustering 
+        - current filtering text
+
+    output:
+        - User input on email clustering
+        - User input on article clustering
+        - article data
+        - User input on article filter
+        - updated filtering text
+    """
+
     data_article = data['data-frame-article']
     df_article = pd.DataFrame(data_article)
     # check if filtering cluster in inputted
@@ -417,8 +507,8 @@ def article_cluster_filtering(article_filter, data, article_cluster, text):
             return 'No', 'No', {"data-frame-article": df_article.to_dict('records')}, 'No', text
     return no_update
 
-
+# run app 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False)
 
 
