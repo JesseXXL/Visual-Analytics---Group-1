@@ -14,6 +14,7 @@ from bokeh.resources import CDN
 from bokeh.embed import file_html
 from msticpy.vis import mp_pandas_plot
 import msticpy as mp
+
 # import figures and functions from the other scripts
 from organizational_chart import org_chart
 from chord_diagram import create_chord_data, initial_chord_diagram
@@ -216,17 +217,18 @@ def update_data(org_chart_selection, article_data_, email_cluster, article_clust
     clusters_top10 = ''
 
     if 'Yes' in article_cluster:
+        # first vectorize the text blocks
         vectorizer = TfidfVectorizer(
             max_df=0.5,
             min_df=5,
             stop_words=my_stop_words,
         )
         X_tfidf = vectorizer.fit_transform(df_article.Content)
-
+        # reduce dimensionality using LSA
         lsa = make_pipeline(TruncatedSVD(n_components=100), Normalizer(copy=False))
         X_lsa = lsa.fit_transform(X_tfidf)
         #explained_variance = lsa[0].explained_variance_ratio_.sum()
-
+        # k-means clustering
         number_of_clusters = 5
         kmeans = KMeans(
             n_clusters=number_of_clusters,
@@ -235,13 +237,13 @@ def update_data(org_chart_selection, article_data_, email_cluster, article_clust
         )
 
         clusters = kmeans.fit_predict(X_lsa)
-
+        # get most representing words per cluster
         original_space_centroids = lsa[0].inverse_transform(kmeans.cluster_centers_)
         order_centroids = original_space_centroids.argsort()[:, ::-1]
         terms = vectorizer.get_feature_names_out()
 
         clusters_header =  'Clusters:'
-
+        # print words to variable 
         for i in range(number_of_clusters):
             clusters_top10 += f"Cluster {i}: "
             for ind in order_centroids[i, :10]:
@@ -249,7 +251,7 @@ def update_data(org_chart_selection, article_data_, email_cluster, article_clust
             clusters_top10 += '\n'
 
         df_article['Cluster'] = clusters
-
+        # cluster classify the emails subjects 
         if 'Yes' in email_cluster:
             X_tfidf_email = vectorizer.transform(filtered_email_data.Subject)
             X_lsa_email = lsa.transform(X_tfidf_email)
@@ -420,9 +422,10 @@ def article_timeline(data, sentiment, article_cluster):
                 time_column="Date",
                 kind=["circle"],
                 width=700,
+                legend='left',
                 )
         else:
-            fig = df_article.mp_plot.timeline(time_column="Date", source_columns= ['Medium', 'Header'], group_by='Cluster', width=700)
+            fig = df_article.mp_plot.timeline(time_column="Date", source_columns= ['Medium', 'Header'], group_by='Cluster', width=700, legend='left',)
             
     else:
         # check if sentiment is selected
@@ -434,6 +437,7 @@ def article_timeline(data, sentiment, article_cluster):
                 time_column="Date",
                 kind=["circle"],
                 width=700,
+                legend='left',
                 )
         else:
             fig = df_article.mp_plot.timeline(time_column="Date", source_columns= ['Medium', 'Header'], group_by='Medium', width=700)
